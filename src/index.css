@@ -34,9 +34,21 @@ cursor: url(./assets/pointer.svg) 6 3, pointer;
   .btn {
     @apply inline-block rounded bg-primary px-6 py-2 text-background transition hover:opacity-80;
   }
+  
+  /* --- NEW PAGINATION STYLES --- */
+  .pagination-btn {
+    @apply flex items-center justify-center p-2 rounded-md bg-gray-700 text-gray-300;
+  }
+  
+  .pagination-btn:hover {
+     @apply bg-gray-600 text-white;
+  }
+  
+  .pagination-btn:disabled {
+    @apply bg-gray-800 text-gray-600 cursor-not-allowed;
+  }
 }
-/* 
-  .btn-outline {
+/* .btn-outline {
     @apply inline-block rounded border border-primary px-6 py-2 text-primary transition hover:bg-primary hover:text-background;
   }
 }

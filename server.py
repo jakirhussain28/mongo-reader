@@ -5,7 +5,8 @@ from pymongo import MongoClient
 from dotenv import load_dotenv
 from datetime import datetime
 import uvicorn
-from bson.objectid import ObjectId # <-- Important: Import ObjectId
+from bson.objectid import ObjectId
+from typing import Optional # <-- Import Optional
 
 # Load environment variables from .env file
 load_dotenv()
@@ -21,10 +22,8 @@ app = FastAPI()
 # --- CORS Middleware ---
 # Ensure your React app's port (e.g., 5173) is listed here
 origins = [
+    "http://localhost:5000",
     "http://localhost:5001",
-    "http://127.0.0.1:5000",
-    "http://localhost:5173",      # <-- Added your React dev port
-    "http://127.0.0.1:5173",     # <-- Added your React dev port
 ]
 
 app.add_middleware(
@@ -47,7 +46,7 @@ except Exception as e:
     # In a real app, you might exit or handle this more gracefully
     client = None
 
-# --- Helper Function (MODIFIED) ---
+# --- Helper Function ---
 def serialize_document(doc):
     """
     Converts MongoDB documents (with ObjectId and datetime)
@@ -55,7 +54,6 @@ def serialize_document(doc):
     """
     serialized = {}
     for key, value in doc.items():
-        # --- THIS IS THE FIX ---
         # Check by TYPE, not by key name
         if isinstance(value, ObjectId):
             serialized[key] = str(value)
@@ -94,10 +92,14 @@ def get_databases_list():
 
 
 @app.get("/api/databases/{db_name}/collections/{collection_name}")
-def get_collection_documents(db_name: str, collection_name: str):
+def get_collection_documents(
+    db_name: str, 
+    collection_name: str,
+    page: Optional[int] = 1,    # <-- NEW: Add page query parameter
+    limit: Optional[int] = 50   # <-- NEW: Add limit query parameter
+):
     """
-    Fetches all documents and the total count for a specific collection.
-    This populates the main document view.
+    Fetches a paginated list of documents and the total count.
     """
     if client is None:
         raise HTTPException(status_code=500, detail="MongoDB connection not established")
@@ -109,15 +111,19 @@ def get_collection_documents(db_name: str, collection_name: str):
             
         collection = db[collection_name]
         
-        # Get count and documents
+        # --- PAGINATION LOGIC ---
+        # Get TOTAL count for all documents
         count = collection.count_documents({})
-        # Note: In a real app, you should add pagination here (e.g., .limit(50))
-        documents_cursor = collection.find({})
         
-        # This will now correctly serialize all documents
+        # Calculate how many documents to skip
+        skip = (page - 1) * limit
+        
+        # Find only the documents for the current page
+        documents_cursor = collection.find({}).skip(skip).limit(limit)
+        
         documents = [serialize_document(doc) for doc in documents_cursor]
         
-        # Return data in the format the frontend expects
+        # Return total count + paged documents
         return {"count": count, "documents": documents}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
