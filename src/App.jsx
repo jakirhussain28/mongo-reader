@@ -2,79 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { Database, FileJson, ChevronRight, ChevronDown } from 'lucide-react';
 import './index.css';
 
-// --- Mock Data ---
-// Replace this with data fetched from your FastAPI backend
-const MOCK_DATABASES = [
-  {
-    name: "productionDB",
-    collections: [
-      {
-        name: "users",
-        count: 2,
-        documents: [
-          {
-            _id: "68ca31a1e7a0c6e58d39de6d1",
-            email: "zakirhussain281999@gmail.com",
-            password: "$2b$12$Z91vQ...V2MNKrCTrq",
-            name: "Zakir Hussain",
-            bio: "Hi, I am MaxFinder Creator.",
-            college: "PVG'S College Of Engineering, Technology And Management, Pune",
-            createdAt: "2025-08-17T09:27:21.727+00:00"
-          },
-          {
-            _id: "6905ae0cfc09adf40b076dfe1",
-            email: "jakirhussain28101999@gmail.com",
-            password: "$2b$12$9xjV...c/pcI29Xuy",
-            name: "jakirhussain28101999",
-            bio: "Hi, I am a MaxFinder user.",
-            createdAt: "2025-11-01T12:21:56.445+00:00",
-            college: ""
-          }
-        ]
-      },
-      {
-        name: "products",
-        count: 3,
-        documents: [
-          { _id: "prod_001", name: "Laptop", price: 1200, stock: 15 },
-          { _id: "prod_002", name: "Mouse", price: 45, stock: 100 },
-          { _id: "prod_003", name: "Keyboard", price: 80, stock: 75 },
-        ]
-      },
-      {
-        name: "orders",
-        count: 1,
-        documents: [
-          { _id: "order_987", userId: "6905ae0c...", total: 1245, items: ["prod_001", "prod_002"] }
-        ]
-      }
-    ]
-  },
-  {
-    name: "developmentDB",
-    collections: [
-      {
-        name: "test_users",
-        count: 1,
-        documents: [
-          { _id: "test_001", name: "Test User", status: "active" }
-        ]
-      },
-      {
-        name: "logs",
-        count: 5,
-        documents: [
-          { _id: "log_001", level: "info", message: "Server started" },
-          { _id: "log_002", level: "info", message: "DB connected" },
-          { _id: "log_003", level: "warn", message: "Cache miss" },
-          { _id: "log_004", level: "info", message: "User login" },
-          { _id: "log_005", level: "error", message: "Failed to load resource" },
-        ]
-      }
-    ]
-  }
-];
-
 // --- Sub-Components (All in one file) ---
 
 /**
@@ -94,14 +21,15 @@ const Header = ({ docCount }) => {
  * Renders the right-hand sidebar for databases and collections
  */
 const DatabaseSidebar = ({ databases, selectedCollection, onSelectCollection }) => {
-  const [expandedDBs, setExpandedDBs] = useState(() => {
-    // Automatically expand the first database by default
-    const initialState = {};
-    if (databases.length > 0) {
-      initialState[databases[0].name] = true;
+  const [expandedDBs, setExpandedDBs] = useState({});
+
+  // NEW: Automatically expand the first database when data loads
+  useEffect(() => {
+    if (databases.length > 0 && !expandedDBs[databases[0].name]) {
+      setExpandedDBs({ [databases[0].name]: true });
     }
-    return initialState;
-  });
+  }, [databases]);
+
 
   const toggleDB = (dbName) => {
     setExpandedDBs(prev => ({ ...prev, [dbName]: !prev[dbName] }));
@@ -118,7 +46,7 @@ const DatabaseSidebar = ({ databases, selectedCollection, onSelectCollection }) 
               onClick={() => toggleDB(db.name)}
               className="flex items-center w-full text-left text-gray-200 hover:text-white transition-colors rounded-md p-2 hover:bg-gray-700"
             >
-              {expandedDBs[db.name] ? <ChevronDown size={16} className="mr-2 flex flex-shrink-0" /> : <ChevronRight size={16} className="mr-2 flex-shrink-0" />}
+              {expandedDBs[db.name] ? <ChevronDown size={16} className="mr-2 flex flex-shrink-0" /> : <ChevronRight size={16} className="mr-2 flex flex-shrink-0" />}
               <Database size={16} className="mr-2 flex flex-shrink-0" />
               <span className="font-semibold truncate">{db.name}</span>
             </button>
@@ -127,7 +55,8 @@ const DatabaseSidebar = ({ databases, selectedCollection, onSelectCollection }) 
             {expandedDBs[db.name] && (
               <ul className="pl-6 mt-2 space-y-1">
                 {db.collections.map(col => {
-                  const isSelected = selectedCollection === col.name;
+                  // The data from /api/databases is now { name: "..." }
+                  const isSelected = selectedCollection === col.name; 
                   return (
                     <li key={col.name}>
                       <button
@@ -159,33 +88,130 @@ const DatabaseSidebar = ({ databases, selectedCollection, onSelectCollection }) 
  * Renders the main content area showing the documents
  */
 const DocumentView = ({ documents }) => {
-  // Helper to nicely format JSON with syntax highlighting
-  const JsonSyntaxHighlight = ({ json }) => {
-    let jsonText = JSON.stringify(json, null, 2);
-    
-    // Simple regex for syntax highlighting
-    jsonText = jsonText
-      .replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?)/g, (match) => {
-        let cls = 'text-green-400'; // string
-        if (/:$/.test(match)) {
-          cls = 'text-blue-400'; // key
-        }
-        return `<span class="${cls}">${match}</span>`;
-      })
-      .replace(/\b(true|false)\b/g, '<span class="text-purple-400">$1</span>') // boolean
-      .replace(/\b(null)\b/g, '<span class="text-gray-500">$1</span>') // null
-      .replace(/(\d+)/g, '<span class="text-orange-400">$1</span>'); // number
 
-    return <pre dangerouslySetInnerHTML={{ __html: jsonText }} />;
+  // --- NEW RECURSIVE JSON RENDERER ---
+
+  /**
+   * Renders a single JSON value, applying special styles based on
+   * data type.
+   */
+  const JsonValue = ({ value }) => {
+    // Regex to detect ISO date strings
+    const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
+    // Regex to detect 24-character hex strings (ObjectId)
+    const OBJECT_ID_REGEX = /^[0-9a-fA-F]{24}$/;
+
+    
+    // --- Standard Types ---
+    if (value === null) {
+      return <span className="text-gray-500">null</span>;
+    }
+    if (typeof value === 'boolean') {
+      return <span className="text-purple-400">{String(value)}</span>;
+    }
+    if (typeof value === 'number') {
+      return <span className="text-orange-400">{value}</span>;
+    }
+    
+    if (typeof value === 'string') {
+      
+      // --- THIS IS THE FIX ---
+      // 1. Check if it LOOKS like an ObjectId
+      if (OBJECT_ID_REGEX.test(value)) {
+        return (
+          <span>
+            <span className="text-purple-400">ObjectId</span>
+            (<span className="text-red-400">'{value}'</span>)
+          </span>
+        );
+      }
+
+      // 2. Check if it's a Date string
+      if (ISO_DATE_REGEX.test(value)) {
+        return <span className="text-cyan-400">"{value}"</span>;
+      }
+      
+      // 3. Otherwise, it's a normal string
+      return <span className="text-green-400">"{value}"</span>;
+    }
+
+    // --- Recursive Types ---
+    if (Array.isArray(value)) {
+      if (value.length === 0) {
+        return <span className="text-gray-500">Array (empty)</span>;
+      }
+      return (
+        <span>
+          [
+          {value.map((item, index) => (
+            <div key={index} className="pl-4">
+              <JsonValue value={item} />
+              {index < value.length - 1 ? <span className="text-white">,</span> : ''}
+            </div>
+          ))}
+          ]
+        </span>
+      );
+    }
+    
+    if (typeof value === 'object' && value !== null) {
+      return <RecursiveObjectRenderer obj={value} />;
+    }
+
+    // Fallback
+    return <span>{String(value)}</span>;
+  };
+  
+  /**
+   * Recursively renders the key-value pairs of an object.
+   */
+  const RecursiveObjectRenderer = ({ obj }) => {
+    const keys = Object.keys(obj);
+    if (keys.length === 0) {
+      return <span>{"{ }"}</span>;
+    }
+
+    return (
+      <span>
+        {"{"}
+        {keys.map((key, index) => (
+          <div key={key} className="pl-4">
+            {/* --- Keys in plain text (User Request) --- */}
+            <span className="text-gray-300">{key}</span>
+            <span className="text-white">: </span>
+            
+            {/* Pass 'isIdKey' prop to JsonValue so it knows to style specially */}
+            <JsonValue value={obj[key]} />
+            
+            {index < keys.length - 1 ? <span className="text-white">,</span> : ''}
+          </div>
+        ))}
+        {"}"}
+      </span>
+    );
   };
 
+  /**
+   * The main wrapper component that replaces the old JsonSyntaxHighlight.
+   * It starts the recursive rendering process.
+   */
+  const MongoJsonRenderer = ({ json }) => {
+    return (
+      <pre>
+        <RecursiveObjectRenderer obj={json} />
+      </pre>
+    );
+  };
+  
+  // --- Main DocumentView return ---
   return (
     <main className="flex-1 bg-gray-900 p-6 overflow-y-auto">
       <div className="space-y-4">
         {documents.length > 0 ? (
           documents.map((doc, index) => (
             <div key={doc._id || index} className="bg-gray-800 rounded-lg p-4 font-mono text-sm text-gray-300 border border-gray-700 shadow-sm">
-              <JsonSyntaxHighlight json={doc} />
+              {/* --- USE THE NEW RENDERER --- */}
+              <MongoJsonRenderer json={doc} />
             </div>
           ))
         ) : (
@@ -208,87 +234,70 @@ export default function App() {
   const [selectedCollection, setSelectedCollection] = useState(null);
   const [documents, setDocuments] = useState([]);
   const [docCount, setDocCount] = useState(0);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true); // Start loading true
   const [error, setError] = useState(null);
 
-  // --- API CALL SIMULATION ---
-  // On component mount, simulate fetching the database list
+  // --- BASE URL for the API ---
+  const API_URL = "http://127.0.0.1:8008";
+
+  // On component mount, fetch the database list
   useEffect(() => {
     setLoading(true);
     setError(null);
-    //
-    // --- REAL API CALL WOULD GO HERE ---
-    // Example:
-    // fetch('http://127.0.0.1:8000/api/databases')
-    //   .then(res => res.json())
-    //   .then(data => {
-    //     setDatabases(data);
-    //     // Optionally, select the first db/collection
-    //     if (data.length > 0 && data[0].collections.length > 0) {
-    //       handleSelectCollection(data[0].name, data[0].collections[0].name);
-    //     }
-    //   })
-    //   .catch(err => setError(err.message))
-    //   .finally(() => setLoading(false));
-    //
-    // --- MOCK IMPLEMENTATION ---
-    setTimeout(() => {
-      setDatabases(MOCK_DATABASES);
-      // Auto-select first collection of first DB
-      if (MOCK_DATABASES.length > 0 && MOCK_DATABASES[0].collections.length > 0) {
-        handleSelectCollection(MOCK_DATABASES[0].name, MOCK_DATABASES[0].collections[0].name);
-      }
-      setLoading(false);
-    }, 500); // Simulate network delay
-    //
+    
+    // --- REAL API CALL ---
+    fetch(`${API_URL}/api/databases`)
+      .then(res => {
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
+        return res.json();
+      })
+      .then(data => {
+        setDatabases(data);
+        // Automatically select the first db/collection
+        if (data.length > 0 && data[0].collections.length > 0) {
+          handleSelectCollection(data[0].name, data[0].collections[0].name, false); // Pass false to avoid double loading
+        }
+      })
+      .catch(err => setError(err.message))
+      .finally(() => setLoading(false));
+    
   }, []); // Empty dependency array means this runs once on mount
 
-  // --- API CALL SIMULATION ---
   // This function is called when a collection is clicked
-  const handleSelectCollection = (dbName, collectionName) => {
-    setLoading(true);
+  const handleSelectCollection = (dbName, collectionName, setLoadingState = true) => {
+    if (setLoadingState) {
+      setLoading(true);
+    }
     setError(null);
     setSelectedDb(dbName);
     setSelectedCollection(collectionName);
 
-    //
-    // --- REAL API CALL WOULD GO HERE ---
-    // Example:
-    // fetch(`http://127.0.0.1:8000/api/databases/${dbName}/collections/${collectionName}`)
-    //   .then(res => res.json())
-    //   .then(data => {
-    //     setDocuments(data.documents);
-    //     setDocCount(data.count);
-    //   })
-    //   .catch(err => setError(err.message))
-    //   .finally(() => setLoading(false));
-    //
-    // --- MOCK IMPLEMENTATION ---
-    setTimeout(() => {
-      try {
-        const db = MOCK_DATABASES.find(d => d.name === dbName);
-        const collection = db.collections.find(c => c.name === collectionName);
-        setDocuments(collection.documents);
-        setDocCount(collection.count);
-      } catch (err) {
-        setError("Failed to load mock data.");
+    // --- REAL API CALL ---
+    fetch(`${API_URL}/api/databases/${dbName}/collections/${collectionName}`)
+      .then(res => {
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
+        return res.json();
+      })
+      .then(data => {
+        setDocuments(data.documents);
+        setDocCount(data.count);
+      })
+      .catch(err => {
+        setError(err.message);
         setDocuments([]);
         setDocCount(0);
-      }
-      setLoading(false);
-    }, 300); // Simulate network delay
-    //
+      })
+      .finally(() => setLoading(false));
   };
 
   return (
     <div className="flex flex-col h-screen font-sans text-white bg-gray-900">
       <Header docCount={docCount} />
       <div className="flex flex-1 overflow-hidden">
-        {/*
-          This layout now matches the screenshot:
-          Navigation Sidebar (left) | Document View (right)
-        */}
-
         {/* Left Pane: Database Sidebar */}
         <DatabaseSidebar
           databases={databases}
@@ -299,7 +308,7 @@ export default function App() {
         {/* Right Pane: Document View */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {loading && <div className="p-4 text-center text-gray-500">Loading...</div>}
-          {error && <div className="p-4 text-center text-red-500">{error}</div>}
+          {error && <div className="p-4 text-center text-red-500">Error: {error}</div>}
           {!loading && !error && <DocumentView documents={documents} />}
         </div>
         
