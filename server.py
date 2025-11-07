@@ -22,6 +22,7 @@ app = FastAPI()
 # --- CORS Middleware ---
 # Ensure your React app's port (e.g., 5173) is listed here
 origins = [
+    "https://mongoreader.vercel.app",
     "http://localhost:5000",
     "http://localhost:5001",
 ]
